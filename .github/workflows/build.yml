@@ -142,3 +142,21 @@ jobs:
             fi
 
             echo 'CONFIG_KSU_KPROBES_HOOK=n' >> out/.config
+
+        - name: 'Build kernel'
+          working-directory: './kernel-src'
+          run: |
+            # Compile using make
+            if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'Clang/LLVM' ]; then
+                make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=clang-20 LLVM=-20 LLVM_IAS=1 LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
+            fi
+
+            if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=arm-linux-gnueabihf-gcc CROSS_COMPILE=arm-linux-gnueabihf- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
+                fi
+            else
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=aarch64-linux-gnu-gcc CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out
+                fi
+            fi
