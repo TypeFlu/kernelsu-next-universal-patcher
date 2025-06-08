@@ -25,18 +25,25 @@ on:
             KERNEL_GIT_BRANCH:
                 description: 'Preferred branch of the kernel source git repository:'
                 required: true
-            KERNEL_ARCHITECTURE:
+            KERNEL_ARCH:
                 type: choice
                 description: 'Kernel architecture (seperate from Android architecture):'
                 required: true
                 options:
                     - 'arm64'
                     - 'arm'
+            KERNEL_COMPILER:
+                type: choice
+                description: 'Which compiler would you like to use?'
+                required: true
+                options:
+                    - 'Clang/LLVM'
+                    - 'GCC/Binutils'
             KERNEL_CONFIGS:
                 description: 'Space-seperated list of kernel configs your designated device requires by order (!IMPORTANT AND DANGEROUS!):'
                 required: true
             KERNEL_LOCALVERSION:
-                description: 'Suffix for your kernel version (leave blank if unsure):'
+                description: 'Suffix for your kernel version (must not contain spaces, leave blank if unsure):'
                 required: false
             #KERNEL_EXTRA_CONFIGS:
             #    description: 'Extra kernel configuration lines (!USE AT YOUR OWN RISK!, leave blank if unsure, please):'
@@ -51,7 +58,7 @@ jobs:
           with:
            fetch-depth: 0
 
-        - name: 'Setup dependencies'
+        - name: 'Setup dependencies and environment'
           run: |
             sudo cp /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources~
             sudo sed -Ei 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/ubuntu.sources
@@ -59,6 +66,12 @@ jobs:
 
             # Install kernel build dependencies
             sudo apt build-dep -y linux
+
+            # Install clang and LLVM
+            sudo bash -c "$(wget -O - https://apt.llvm.org/llvm.sh)"
+
+            # Install GCC for aarch64 and arm(32)
+            sudo apt-get install -y gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf
 
             # Compile and install coccinelle
             sudo apt-get build-dep -y coccinelle
@@ -109,3 +122,23 @@ jobs:
 
             # Cleanup
             rm -rf ./kernelsu-coccinelle
+
+        - name: 'Generate the kernel .config file'
+          working-directory: './kernel-src'
+          run: |
+            # Generate kernel config using make
+            if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'Clang/LLVM' ]; then
+                make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=clang-20 LLVM=-20 LLVM_IAS=1 LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+            fi
+
+            if [ ${{ github.event.inputs.KERNEL_ARCH }} == 'arm' ]; then
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=arm-linux-gnueabihf-gcc CROSS_COMPILE=arm-linux-gnueabihf- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                fi
+            else
+                if [ ${{ github.event.inputs.KERNEL_COMPILER }} == 'GCC/Binutils' ]; then
+                    make ARCH=${{ github.event.inputs.KERNEL_ARCH }} CC=aarch64-linux-gnu-gcc CROSS_COMPILE=aarch64-linux-gnu- LOCALVERSION=${{ github.event.inputs.KERNEL_LOCALVERSION }} -j$(nproc --all) O=out ${{ github.event.inputs.KERNEL_CONFIGS }}
+                fi
+            fi
+
+            echo 'CONFIG_KSU_KPROBES_HOOK=n' >> out/.config
